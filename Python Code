@@ -1,0 +1,114 @@
+import google.generativeai as genai
+from typing import Dict
+import json
+
+class MealSuggestion:
+  def __init__(self, api_key: str):
+    """Initialize the Gemini API client."""
+    genai.configure(api_key=api_key)
+    self.model=genai.GenerativeModel('gemini-pro')
+
+  def generate_prompt(self, carbs: float, protein: float, fat: float) -> str:
+    """Create a detailed prompt for the Gemini API."""
+    return f"""You are a nutritionist and chef. Generate exactly 3 meal options that match these macronutrient percentages:
+    Carbohydrates: {carbs}%
+    Protein: {protein}%
+    Fat: {fat}%
+
+    Respond strictly in this JSON format with no additional text:
+    {{
+            "meals": [
+                {{
+                    "name": "dish name",
+                    "ingredients": ["ingredient 1 with quantity", "ingredient 2 with quantity"],
+                    "instructions": ["step 1", "step 2"],
+                    "macros": {{
+                        "carbs": "{carbs}%",
+                        "protein": "{protein}%",
+                        "fat": "{fat}%"
+                    }}
+                }}
+            ]
+      }}"""
+
+  def meal_suggestions(self, carbs: float, protein: float, fat: float) -> Dict:
+        """Get meal suggestions from Gemini API."""
+        try:
+          if carbs + protein + fat != 100:
+            raise ValueError("Macronutrient percentages must sum to 100%")
+
+
+          response = self.model.generate_content(self.generate_prompt(carbs, protein, fat))
+          
+          # Get the response text and ensure it's properly formatted
+          response_text = response.text.strip()
+
+          # Try to parse JSON response
+
+          try: 
+              suggestions= json.loads(response_text)
+
+          except json.JSONDecodeError:
+                # If JSON parsing fails, try to extract JSON from the response
+                start_idx = response_text.find('{')
+                end_idx = response_text.rfind('}') + 1
+                if start_idx != -1 and end_idx != 0:
+                    json_str = response_text[start_idx:end_idx]
+                    suggestions = json.loads(json_str)
+                else:
+                    raise ValueError("Could not parse API response as JSON")
+                
+          return suggestions
+
+        except Exception as e:
+          return {"error": f"Error getting meal suggestions: {str(e)}"}
+
+  def format_meal_output(self, meals_data: Dict) ->str:
+      """Format the meal suggestions for display."""
+      if 'error' in meals_data:
+        return f"Error: {meals_data['error']}"
+
+      output=  []
+      for i, meal in enumerate(meals_data["meals"], 1):
+        output.append(f"\n=== Meal Option {i}: {meal['name']} ===\n")
+
+        output.append("Ingredients:")
+        for ingredient in meal["ingredients"]:
+          output.append(f"- {ingredient}")
+
+        output.append("\nInstructions:")
+        for idx, step in enumerate(meal["instructions"],1):
+          output.append(f"{idx}. {step}")
+
+        output.append("\nMacronutrient Breakdown:")
+        macros=meal["macros"]
+        output.append(f"Carbs: {macros['carbs']}")
+        output.append(f"Protein: {macros['protein']}")
+        output.append(f"Fat: {macros['fat']}\n")
+         
+      return "\n".join(output)
+
+def main():
+    api_key="YOUR-API-KEY"
+
+    app= MealSuggestion(api_key)
+
+    try:
+      carbs = float(input("Enter carbohydrate percentage: "))
+      protein = float(input("Enter protein percentage: "))
+      fat = float(input("Enter fat percentage: "))
+
+      if carbs+ protein + fat != 100:
+        print("Error: Percentages must sum to 100%")
+        return
+
+    except ValueError:
+      print("Please enter a valid number.")
+      return
+
+    suggestions= app.meal_suggestions(carbs, protein, fat)
+    formatted_output=app.format_meal_output(suggestions)
+    print(formatted_output)
+
+if __name__=="__main__":
+  main()
